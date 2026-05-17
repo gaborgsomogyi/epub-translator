@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 
@@ -13,6 +14,22 @@ from scripts.utils import load_llm, read_and_clean_temp
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Translate XML structure test")
+    parser.add_argument(
+        "-l", "--lan", type=str, default="Chinese", help="Target language for translation (default: Chinese)"
+    )
+    parser.add_argument(
+        "-m", "--mode", type=str, default="replace",
+        choices=["replace", "append_block", "append_text"],
+        help="Translation mode: replace (default), append_block (bilingual), append_text (inline bilingual)"
+    )
+    args = parser.parse_args()
+    submit_mode = {
+        "replace": SubmitKind.REPLACE,
+        "append_block": SubmitKind.APPEND_BLOCK,
+        "append_text": SubmitKind.APPEND_TEXT,
+    }[args.mode]
+
     print("=" * 60)
     print("Filler Test - Filling translated text into XML structure")
     print("=" * 60)
@@ -27,7 +44,7 @@ def main() -> None:
     translator = XMLTranslator(
         translation_llm=translation_llm,
         fill_llm=fill_llm,
-        target_language=language.CHINESE,
+        target_language=args.lan,
         user_prompt=None,
         ignore_translated_error=False,
         max_retries=5,
@@ -47,7 +64,7 @@ def main() -> None:
         translated_element, _ = translator.translate_element(
             task=TranslationTask(
                 element=source_ele,
-                action=SubmitKind.APPEND_BLOCK,
+                action=submit_mode,
                 payload=None,
             )
         )

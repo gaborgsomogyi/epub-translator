@@ -22,6 +22,11 @@ def main() -> None:
     parser.add_argument(
         "-l", "--lan", type=str, default="Chinese", help="Target language for translation (default: Chinese)"
     )
+    parser.add_argument(
+        "-m", "--mode", type=str, default="replace",
+        choices=["replace", "append_block", "append_text"],
+        help="Translation mode: replace (default), append_block (bilingual), append_text (inline bilingual)"
+    )
     args = parser.parse_args()
     source_path = Path(args.source_path)
 
@@ -30,6 +35,11 @@ def main() -> None:
         sys.exit(1)
 
     target_language = args.lan
+    submit_mode = {
+        "replace": SubmitKind.REPLACE,
+        "append_block": SubmitKind.APPEND_BLOCK,
+        "append_text": SubmitKind.APPEND_TEXT,
+    }[args.mode]
 
     temp_path = read_and_clean_temp()
     translation_llm, fill_llm = load_llm(
@@ -75,7 +85,7 @@ def main() -> None:
                 fill_llm=fill_llm,
                 concurrency=4,
                 target_language=target_language,
-                submit=SubmitKind.APPEND_BLOCK,
+                submit=submit_mode,
                 source_path=source_path,
                 target_path=temp_path / "translated.epub",
                 on_progress=on_progress,
