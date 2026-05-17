@@ -2,7 +2,57 @@ from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
-from ..utils import ensure_list, is_the_same, nest
+from ..utils import ensure_list, is_the_same, nest, normalize_whitespace
+
+
+def _normalize_fill_content(text: str, original: str | None, *, tail: bool = False) -> str:
+    """Normalize text from an indented fill LLM response.
+
+    When the fill LLM indents its output, every ``\n  `` sequence replaces a
+    meaningful space (or no space).  We cannot recover the correct spacing from
+    the indented text alone, so we use *original* — the corresponding text node
+    from ``self.create_element()`` — as the authoritative source for leading and
+    trailing spaces.
+
+    For compact (non-indented) fill responses there are no newlines, so the text
+    is returned unchanged; the LLM had the information and we trust its output.
+
+    When ``tail=True`` the leading-space decision uses a word-boundary heuristic
+    with three tiers:
+
+    1. Content starts with punctuation/symbol (not alphanumeric): never add a
+       leading space.  A comma or period never needs a space before it in a tail,
+       regardless of what the original tail looked like.
+
+    2. Content starts with a word character AND the original tail did not (None,
+       empty, or punctuation/space): add a leading space.  Covers cases where the
+       fill LLM added new content (e.g. Hungarian "cimű") or reordered words so
+       that a word now follows the element (e.g. "nevezhetnénk." where the source
+       had only ".").
+
+    3. Both content and original start with a word character: use the original
+       tail's leading space (or lack thereof) as-is.  This preserves no-space
+       direct attachments like "<em>Freud</em>ian".
+    """
+    if "\n" not in text:
+        return text
+    content = normalize_whitespace(text).strip()
+    if not content:
+        return ""
+    orig = original or ""
+    if tail:
+        content_starts_word = content[0].isalnum()
+        orig_starts_word = bool(orig) and orig[0].isalnum()
+        if not content_starts_word:
+            leading = ""  # punctuation/symbol: never a leading space
+        elif not orig_starts_word:
+            leading = " "  # word where original had non-word: add separator
+        else:
+            leading = " " if orig.startswith(" ") else ""
+    else:
+        leading = " " if orig.startswith(" ") else ""
+    trailing = " " if orig.endswith(" ") else ""
+    return leading + content + trailing
 from ..xml import ID_KEY, append_text_in_element, iter_with_stack, plain_text
 from .common import FoundInvalidIDError, validate_id_in_element
 from .text_segment import TextSegment
@@ -292,12 +342,16 @@ class InlineSegment:
 
     # 即便 self.validate(...) 的错误没有排除干净，也要尽可能匹配一个质量较高（尽力而为）的版本
     def assign_attributes(self, template_element: Element) -> Element:
+        # original_element carries the authoritative spacing for this segment.
+        original_element = self.create_element()
         assigned_element = Element(self.parent.tag, self.parent.attrib)
         if template_element.text and template_element.text.strip():
-            assigned_element.text = append_text_in_element(
-                origin_text=assigned_element.text,
-                append_text=template_element.text,
-            )
+            text = _normalize_fill_content(template_element.text, original_element.text)
+            if text:
+                assigned_element.text = append_text_in_element(
+                    origin_text=assigned_element.text,
+                    append_text=text,
+                )
 
         matched_child_element_ids: set[int] = set()
         for child, child_element in self._match_children(template_element):
@@ -307,8 +361,11 @@ class InlineSegment:
 
         assigned_child_element_stack = list(assigned_element)
         assigned_child_element_stack.reverse()
+        original_child_stack = list(original_element)
+        original_child_stack.reverse()
 
         previous_assigned_child_element: Element | None = None
+        previous_original_child: Element | None = None
         for child_element in template_element:
             # 只关心 child_element 是否是分割点，不关心它真实对应。极端情况下可能乱序，只好大致对上就行
             child_text: str = ""
@@ -316,8 +373,10 @@ class InlineSegment:
                 child_text = plain_text(child_element)
             elif assigned_child_element_stack:
                 previous_assigned_child_element = assigned_child_element_stack.pop()
+                previous_original_child = original_child_stack.pop() if original_child_stack else None
             if child_element.tail is not None:
-                child_text += child_element.tail
+                orig_tail = previous_original_child.tail if previous_original_child is not None else None
+                child_text += _normalize_fill_content(child_element.tail, orig_tail, tail=True)
             if not child_text.strip():
                 continue
             if previous_assigned_child_element is None:

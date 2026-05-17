@@ -33,10 +33,7 @@ Error Type 1: Missing expected blocks
 
 Error Type 2: Tag count mismatch for non-id elements
 Example template:
-<p id="1">
-  <span>text1</span>
-  <span>text2</span>
-</p>
+<p id="1"><span>text1</span><span>text2</span></p>
 
 ❌ WRONG: <p id="1"><span>merged text</span></p>  (only 1 span, expected 2)
 ✓ CORRECT: <p id="1"><span>text1</span><span>text2</span></p>
@@ -157,9 +154,7 @@ WRONG fallback approaches:
 
 OUTPUT FORMAT:
 ```xml
-<xml>
-  ... your filled XML here ...
-</xml>
+<xml>... your filled XML here ...</xml>
 ```
 
 CRITICAL:
@@ -167,5 +162,14 @@ CRITICAL:
 - Do NOT include example blocks or alternatives
 - If unsure, make best attempt based on pattern
 - System will provide detailed error messages if corrections needed
+- Output COMPACT XML: no line breaks or indentation inside elements.
+  All text and tags on the same line. Spaces between words must be written
+  as explicit space characters, NOT as newlines.
+  ❌ WRONG (indented):
+    <xml>
+      <p id="1">some <em>text</em> here</p>
+    </xml>
+  ✓ CORRECT (compact):
+    <xml><p id="1">some <em>text</em> here</p></xml>
 
 Begin.
