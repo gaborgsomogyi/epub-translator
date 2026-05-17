@@ -15,6 +15,7 @@ from scripts.utils import load_llm, read_and_clean_temp
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Translate XML structure test")
+    parser.add_argument("-s", "--source", type=str, default=None, help="Path to XML file to translate (uses built-in test XML if not provided)")
     parser.add_argument(
         "-l", "--lan", type=str, default="Chinese", help="Target language for translation (default: Chinese)"
     )
@@ -53,9 +54,12 @@ def main() -> None:
     )
     print("✓ Created XMLTranslator instance")
 
-    # Create a test XML structure with nested elements
-    source_ele = _create_test_xml()
-    print("\n✓ Created test XML structure:")
+    if args.source:
+        source_ele = fromstring(Path(args.source).read_text(encoding="utf-8"))
+        print(f"\n✓ Loaded XML from {args.source}:")
+    else:
+        source_ele = _create_test_xml()
+        print("\n✓ Created test XML structure:")
     print(f"\n{encode_friendly(source_ele)}\n")
 
     # Fill the translated text into XML structure

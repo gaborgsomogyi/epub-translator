@@ -73,6 +73,10 @@ class _Submitter:
     def _submit_by_block(self, node: _Node) -> Element | None:
         parent = self._parents.get(id(node.raw_element), None)
         if parent is None:
+            if self._action == SubmitKind.REPLACE:
+                combined = self._combine_text_segments(node.tail_text_segments)
+                if combined is not None:
+                    return combined
             return node.raw_element
 
         preserved_elements: list[Element] = []

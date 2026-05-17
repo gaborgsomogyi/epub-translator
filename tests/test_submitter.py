@@ -224,6 +224,17 @@ class TestSubmitAppendBlock(unittest.TestCase):
 class TestSubmitEdgeCases(unittest.TestCase):
     """测试边界情况"""
 
+    def test_replace_root_element_without_parent_returns_translated(self):
+        """When the submitted element is the root (no parent in the tree),
+        REPLACE mode must return the translated result, not the original."""
+        root = parse_xml("<p>original</p>")
+        translated_segments = list(search_text_segments(parse_xml("<p>translated</p>")))
+
+        result = submit(root, SubmitKind.REPLACE, [(root, translated_segments)])
+
+        self.assertIn("translated", element_to_string(result))
+        self.assertNotIn("original", element_to_string(result))
+
     def test_empty_mappings(self):
         """测试空 mappings"""
         xml_str = "<div><p>hello</p></div>"

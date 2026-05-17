@@ -68,6 +68,16 @@ def search_inline_segments(text_segments: Iterable[TextSegment]) -> Generator["I
                 stack_base_depth=stack_base_depth,
             )
 
+        # When adjacent sibling inline elements switch parent at the same depth
+        # (e.g. <span>T</span><small>HIS</small>), pop to the common depth so they
+        # form separate InlineSegments rather than being merged into one.
+        if text_segment.left_common_depth >= stack_base_depth:
+            target_len = text_segment.left_common_depth - stack_base_depth + 1
+            while len(stack) > target_len:
+                _pop_stack(stack=stack, stack_base_depth=stack_base_depth)
+            while len(stack) < text_segment.depth + 1:
+                stack.append([])
+
         # text_segment.depth 可视为它在 stack 中的 index，必须令 len(stack) == text_segment.depth + 1
         stack[-1].append(text_segment)
 
