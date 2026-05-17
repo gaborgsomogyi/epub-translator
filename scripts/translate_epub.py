@@ -1,7 +1,9 @@
 import argparse
+import logging
 import os
 import sys
 import time
+import threading
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
@@ -33,8 +35,16 @@ def main() -> None:
         cache_path=Path(__file__).parent / ".." / "cache",
         log_dir_path=temp_path / "logs",
     )
+    log_file = temp_path / "fill_errors.log"
+    logging.basicConfig(filename=log_file, level=logging.INFO, format="%(asctime)s %(message)s")
+    fill_logger = logging.getLogger("fill")
+
+    fill_retry_count = 0
+    fill_retry_lock = threading.Lock()
+
     start_time = time.time()
-    with tqdm(total=100, desc="Translating", unit="%", bar_format="{l_bar}{bar}| {n:.1f}/{total:.0f}%") as pbar:
+    with tqdm(total=100, desc="Translating", unit="%", bar_format="{l_bar}{bar}| {n:.1f}/{total:.0f}% {postfix}") as pbar:
+        pbar.set_postfix({"fill retries": 0}, refresh=False)
         last_progress = 0.0
 
         def on_progress(progress: float) -> None:
@@ -44,15 +54,13 @@ def main() -> None:
             last_progress = progress
 
         def on_fill_failed(event: FillFailedEvent):
-            print(f"Retry {event.retried_count} Validation failed:")
-            print(f"{event.error_message}")
-            print("---\n")
+            nonlocal fill_retry_count
+            fill_logger.info("Retry %d validation failed:\n%s", event.retried_count, event.error_message)
             if event.over_maximum_retries:
-                print(
-                    "+ ===============================\n"
-                    "  Warning: Maximum retries reached without successful XML filling. Will ignore remaining errors.\n"
-                    "+ ===============================\n"
-                )
+                fill_logger.warning("Maximum retries reached without successful XML filling.")
+            with fill_retry_lock:
+                fill_retry_count += 1
+                pbar.set_postfix({"fill retries": fill_retry_count}, refresh=True)
 
         try:
             translate(
