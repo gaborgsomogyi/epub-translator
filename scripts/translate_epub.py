@@ -54,17 +54,21 @@ def main() -> None:
                     "+ ===============================\n"
                 )
 
-        translate(
-            translation_llm=translation_llm,
-            fill_llm=fill_llm,
-            concurrency=4,
-            target_language=target_language,
-            submit=SubmitKind.APPEND_BLOCK,
-            source_path=source_path,
-            target_path=temp_path / "translated.epub",
-            on_progress=on_progress,
-            on_fill_failed=on_fill_failed,
-        )
+        try:
+            translate(
+                translation_llm=translation_llm,
+                fill_llm=fill_llm,
+                concurrency=4,
+                target_language=target_language,
+                submit=SubmitKind.APPEND_BLOCK,
+                source_path=source_path,
+                target_path=temp_path / "translated.epub",
+                on_progress=on_progress,
+                on_fill_failed=on_fill_failed,
+            )
+        except KeyboardInterrupt:
+            print("\nTranslation interrupted.")
+            os._exit(130)
 
     # Print token usage statistics
     print("\n" + "=" * 50)
