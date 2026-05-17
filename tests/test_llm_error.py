@@ -3,7 +3,7 @@ import unittest
 import httpx
 import openai
 
-from epub_translator.llm.error import get_retry_after_seconds
+from epub_translator.llm.error import get_retry_after_seconds, is_retry_error
 
 
 def _rate_limit_error(code: str, retry_after: str | None = None) -> openai.RateLimitError:
@@ -17,7 +17,7 @@ def _rate_limit_error(code: str, retry_after: str | None = None) -> openai.RateL
     return openai.RateLimitError(
         message="rate limit",
         response=response,
-        body={"error": {"code": code}},
+        body={"code": code},
     )
 
 
@@ -40,6 +40,16 @@ class TestGetRetryAfterSeconds(unittest.TestCase):
 
     def test_returns_none_for_non_rate_limit_error(self):
         self.assertIsNone(get_retry_after_seconds(ValueError("other")))
+
+
+class TestIsRetryError(unittest.TestCase):
+    def test_insufficient_quota_is_not_retried(self):
+        err = _rate_limit_error("insufficient_quota")
+        self.assertFalse(is_retry_error(err))
+
+    def test_rate_limit_exceeded_is_retried(self):
+        err = _rate_limit_error("rate_limit_exceeded")
+        self.assertTrue(is_retry_error(err))
 
 
 if __name__ == "__main__":
