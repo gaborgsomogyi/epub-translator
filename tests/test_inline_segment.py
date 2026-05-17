@@ -61,6 +61,20 @@ class TestCollectInlineSegment(unittest.TestCase):
         # 应该有 5 个 children：X, em, Y, em, Z
         self.assertEqual(len(inline_segment.children), 5)
 
+    def test_adjacent_sibling_inline_elements_form_separate_child_segments(self):
+        """Adjacent inline elements at the same depth must become separate child
+        InlineSegments rather than being merged into one (drop-cap pattern)."""
+        root = fromstring("<p><span>A</span><small>B</small></p>")
+        segments = list(search_text_segments(root))
+        inline_segments = list(search_inline_segments(segments))
+
+        self.assertEqual(len(inline_segments), 1)
+        outer = inline_segments[0]
+        inline_children = [c for c in outer.children if isinstance(c, InlineSegment)]
+        self.assertEqual(len(inline_children), 2)
+        self.assertEqual(inline_children[0].parent.tag, "span")
+        self.assertEqual(inline_children[1].parent.tag, "small")
+
 
 class TestInlineSegmentIDAssignment(unittest.TestCase):
     """测试 InlineSegment ID 分配逻辑"""
