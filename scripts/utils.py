@@ -25,6 +25,14 @@ def load_llm(**args):
 def read_format_json() -> dict:
     path = Path(__file__).parent / ".." / "format.json"
     path = path.resolve()
+    if not path.exists():
+        template_path = (Path(__file__).parent / ".." / "format.template.json").resolve()
+        raise FileNotFoundError(
+            f"Configuration file not found: {path}\n"
+            f"Please create it by copying the template:\n"
+            f"  copy \"{template_path}\" \"{path}\"\n"
+            "Then fill in your API key, URL, model, and token_encoding."
+        )
     with open(path, encoding="utf-8") as file:
         return json.load(file)
 
