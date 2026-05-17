@@ -12,6 +12,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from epub_translator import FillFailedEvent, SubmitKind, translate
+from scripts.stats import StatsTracker
 from scripts.utils import load_llm, read_and_clean_temp
 
 
@@ -39,6 +40,11 @@ def main() -> None:
     logging.basicConfig(filename=log_file, level=logging.INFO, format="%(asctime)s %(message)s")
     fill_logger = logging.getLogger("fill")
 
+    cache_path = Path(__file__).parent / ".." / "cache"
+    cache_path.mkdir(parents=True, exist_ok=True)
+    stats = StatsTracker(cache_path / "stats.json", source_path.name)
+    stats.start_run()
+
     fill_retry_count = 0
     fill_retry_lock = threading.Lock()
 
@@ -52,6 +58,7 @@ def main() -> None:
             increment = (progress - last_progress) * 100
             pbar.update(increment)
             last_progress = progress
+            stats.update(translation_llm, fill_llm, time.time() - start_time)
 
         def on_fill_failed(event: FillFailedEvent):
             nonlocal fill_retry_count
@@ -75,40 +82,64 @@ def main() -> None:
                 on_fill_failed=on_fill_failed,
             )
         except KeyboardInterrupt:
+            stats.update(translation_llm, fill_llm, time.time() - start_time, force=True)
             print("\nTranslation interrupted.")
             os._exit(130)
         on_progress(1.0)
 
-    # Print token usage statistics
-    print("\n" + "=" * 50)
-    print("Token Usage Statistics")
-    print("=" * 50)
-    print("\nTranslation LLM:")
-    print(f"  Total tokens:       {translation_llm.total_tokens:,}")
-    print(f"  Input tokens:       {translation_llm.input_tokens:,}")
-    print(f"  Input cache tokens: {translation_llm.input_cache_tokens:,}")
-    print(f"  Output tokens:      {translation_llm.output_tokens:,}")
-
-    print("\nFill LLM:")
-    print(f"  Total tokens:       {fill_llm.total_tokens:,}")
-    print(f"  Input tokens:       {fill_llm.input_tokens:,}")
-    print(f"  Input cache tokens: {fill_llm.input_cache_tokens:,}")
-    print(f"  Output tokens:      {fill_llm.output_tokens:,}")
-
-    total_combined = translation_llm.total_tokens + fill_llm.total_tokens
-    input_combined = translation_llm.input_tokens + fill_llm.input_tokens
-    input_cache_combined = translation_llm.input_cache_tokens + fill_llm.input_cache_tokens
-    output_combined = translation_llm.output_tokens + fill_llm.output_tokens
-
-    print("\nCombined Total:")
-    print(f"  Total tokens:       {total_combined:,}")
-    print(f"  Input tokens:       {input_combined:,}")
-    print(f"  Input cache tokens: {input_cache_combined:,}")
-    print(f"  Output tokens:      {output_combined:,}")
     elapsed = time.time() - start_time
-    hours, remainder = divmod(int(elapsed), 3600)
-    minutes, seconds = divmod(remainder, 60)
-    print(f"\nTotal time: {hours:02d}:{minutes:02d}:{seconds:02d}")
+    stats.complete(translation_llm, fill_llm, elapsed)
+    acc = stats.accumulated()
+
+    def fmt_time(seconds: int) -> str:
+        h, r = divmod(seconds, 3600)
+        m, s = divmod(r, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+
+    def print_tokens(label: str, t: dict) -> None:
+        print(f"\n{label}:")
+        print(f"  Total tokens:       {t['total']:,}")
+        print(f"  Input tokens:       {t['input']:,}")
+        print(f"  Input cache tokens: {t['input_cache']:,}")
+        print(f"  Output tokens:      {t['output']:,}")
+
+    print("\n" + "=" * 50)
+    print("This Session")
+    print("=" * 50)
+    print_tokens("Translation LLM", {
+        "total": translation_llm.total_tokens,
+        "input": translation_llm.input_tokens,
+        "input_cache": translation_llm.input_cache_tokens,
+        "output": translation_llm.output_tokens,
+    })
+    print_tokens("Fill LLM", {
+        "total": fill_llm.total_tokens,
+        "input": fill_llm.input_tokens,
+        "input_cache": fill_llm.input_cache_tokens,
+        "output": fill_llm.output_tokens,
+    })
+    session_total = translation_llm.total_tokens + fill_llm.total_tokens
+    session_input = translation_llm.input_tokens + fill_llm.input_tokens
+    session_cache = translation_llm.input_cache_tokens + fill_llm.input_cache_tokens
+    session_output = translation_llm.output_tokens + fill_llm.output_tokens
+    print_tokens("Combined", {"total": session_total, "input": session_input, "input_cache": session_cache, "output": session_output})
+    print(f"\n  Time: {fmt_time(int(elapsed))}")
+
+    acc_t = acc["translation"]
+    acc_f = acc["fill"]
+    acc_total = acc_t["total"] + acc_f["total"]
+    acc_input = acc_t["input"] + acc_f["input"]
+    acc_cache = acc_t["input_cache"] + acc_f["input_cache"]
+    acc_output = acc_t["output"] + acc_f["output"]
+    incomplete_note = f"  ({acc['incomplete_runs']} incomplete)" if acc["incomplete_runs"] else ""
+
+    print("\n" + "=" * 50)
+    print(f"All Runs ({acc['total_runs']} total{incomplete_note})")
+    print("=" * 50)
+    print_tokens("Translation LLM", acc_t)
+    print_tokens("Fill LLM", acc_f)
+    print_tokens("Combined", {"total": acc_total, "input": acc_input, "input_cache": acc_cache, "output": acc_output})
+    print(f"\n  Time: {fmt_time(acc['duration_seconds'])}")
     print("=" * 50 + "\n")
 
 
