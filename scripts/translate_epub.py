@@ -77,6 +77,7 @@ def main() -> None:
         except KeyboardInterrupt:
             print("\nTranslation interrupted.")
             os._exit(130)
+        on_progress(1.0)
 
     # Print token usage statistics
     print("\n" + "=" * 50)
