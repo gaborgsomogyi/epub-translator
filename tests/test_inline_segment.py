@@ -567,6 +567,62 @@ class TestAssignAttributesSpacing(unittest.TestCase):
         )
         self.assertEqual(r[0].tail, " suf")
 
+    def test_compact_text_trailing_space_restored_before_child(self):
+        # Compact fill response: LLM dropped the trailing space on a text node.
+        # Original p.text ends with a space (separator before child element);
+        # fill p.text ends with a word char — restore the trailing separator.
+        r = self._result(
+            "<p>prefix <i>b</i></p>",
+            "<p>x<i>y</i></p>",
+        )
+        self.assertEqual(r.text, "x ")
+
+    def test_compact_text_trailing_space_already_present_unchanged(self):
+        # Compact fill: LLM preserved the trailing space — leave it as-is.
+        r = self._result(
+            "<p>prefix <i>b</i></p>",
+            "<p>x <i>y</i></p>",
+        )
+        self.assertEqual(r.text, "x ")
+
+    def test_compact_text_no_trailing_space_when_original_had_none(self):
+        # Compact fill: original text had no trailing space (direct attach).
+        # Fill also has none — no space should be added.
+        r = self._result(
+            "<p>a<em>b</em>c</p>",
+            "<p>x<em>y</em>z</p>",
+        )
+        self.assertEqual(r.text, "x")
+
+    def test_compact_tail_word_where_original_had_space_gets_leading_space(self):
+        # Compact fill response: LLM dropped the leading space before a word tail.
+        # Original tail starts with space; fill tail starts with a word char directly.
+        # Tier-2 logic must restore the separator even in compact mode.
+        r = self._result(
+            "<p>a <i>b</i> rest</p>",
+            "<p>x <i>y</i>word</p>",
+        )
+        self.assertEqual(r[0].tail, " word")
+
+    def test_compact_tail_punctuation_where_original_had_space_no_leading_space(self):
+        # Compact fill response: fill tail is punctuation even though original had " rest".
+        # Punctuation never gets a leading space (Tier-1 stays out of compact path).
+        r = self._result(
+            "<p>a <i>b</i> rest</p>",
+            "<p>x <i>y</i>.</p>",
+        )
+        self.assertEqual(r[0].tail, ".")
+
+    def test_compact_tail_word_where_original_had_no_space_stays_as_is(self):
+        # Compact fill response: original tail starts with a word (no space, direct
+        # attachment like "<em>b</em>rest"). Fill also starts with a word — no space
+        # should be inserted, preserving the LLM's compact output.
+        r = self._result(
+            "<p>a <em>b</em>rest</p>",
+            "<p>x <em>y</em>word</p>",
+        )
+        self.assertEqual(r[0].tail, "word")
+
     def test_indented_tail_word_replaces_punctuation_gets_leading_space(self):
         # Original tail is "." (period); translation puts a word there instead.
         # A leading space must be inserted because a word needs separation.
