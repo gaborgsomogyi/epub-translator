@@ -19,9 +19,22 @@ def _is_openai_retry_error(err: Exception) -> bool:
         return True
     if isinstance(err, openai.APIConnectionError):
         return True
+    if isinstance(err, openai.RateLimitError):
+        return True
     if isinstance(err, openai.InternalServerError):
         return err.status_code in (502, 503, 504)
     return False
+
+
+def get_retry_after_seconds(err: Exception) -> float | None:
+    if isinstance(err, openai.RateLimitError):
+        retry_after = err.response.headers.get("retry-after")
+        if retry_after is not None:
+            try:
+                return float(retry_after)
+            except ValueError:
+                pass
+    return None
 
 
 # https://www.python-httpx.org/exceptions/

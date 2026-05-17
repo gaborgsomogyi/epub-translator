@@ -6,7 +6,7 @@ from time import sleep
 from openai import OpenAI, omit
 from openai.types.chat import ChatCompletionMessageParam
 
-from .error import is_retry_error
+from .error import get_retry_after_seconds, is_retry_error
 from .statistics import Statistics
 from .types import Message, MessageRole
 
@@ -80,8 +80,9 @@ class LLMExecutor:
                         raise err
                     if logger is not None:
                         logger.warning(f"request failed with connection error, retrying... ({i + 1} times)")
-                    if self._retry_interval_seconds > 0.0 and i < self._retry_times:
-                        sleep(self._retry_interval_seconds)
+                    if i < self._retry_times:
+                        retry_after = get_retry_after_seconds(err)
+                        sleep(retry_after if retry_after is not None else self._retry_interval_seconds)
                     continue
 
                 did_success = True
