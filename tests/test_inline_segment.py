@@ -372,5 +372,237 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(inline3.parent.tag, "div")
 
 
+class TestAssignAttributesSpacing(unittest.TestCase):
+    """Spacing preservation in assign_attributes across all source/fill combinations.
+
+    Two axes of variation:
+      - Source spacing: no space | space before | space after | space both sides
+        | inline as first child | inline as last child | multiple inlines
+      - Fill response format: compact (LLM preserves whitespace) vs indented
+        (LLM adds newlines/indentation, which destroys original whitespace signals)
+
+    For compact fill responses the text is used as-is (LLM had the information).
+    For indented fill responses the original element's spacing must be restored
+    from self.create_element() because the indentation obscures it.
+    """
+
+    def _seg(self, xml: str) -> InlineSegment:
+        root = fromstring(xml)
+        segments = list(search_text_segments(root))
+        return list(search_inline_segments(segments))[0]
+
+    def _result(self, source_xml: str, fill_xml: str) -> "fromstring":
+        return self._seg(source_xml).assign_attributes(fromstring(fill_xml))
+
+    # ── Compact fill response ──────────────────────────────────────────────
+
+    def test_compact_no_space_around_inline(self):
+        r = self._result("<p>a<em>b</em>c</p>", "<p>x<em>y</em>z</p>")
+        self.assertEqual(r.text, "x")
+        self.assertEqual(r[0].tail, "z")
+
+    def test_compact_space_before_inline(self):
+        r = self._result("<p>a <em>b</em>c</p>", "<p>x <em>y</em>z</p>")
+        self.assertEqual(r.text, "x ")
+        self.assertEqual(r[0].tail, "z")
+
+    def test_compact_space_after_inline(self):
+        r = self._result("<p>a<em>b</em> c</p>", "<p>x<em>y</em> z</p>")
+        self.assertEqual(r.text, "x")
+        self.assertEqual(r[0].tail, " z")
+
+    def test_compact_space_both_sides(self):
+        r = self._result("<p>a <em>b</em> c</p>", "<p>x <em>y</em> z</p>")
+        self.assertEqual(r.text, "x ")
+        self.assertEqual(r[0].tail, " z")
+
+    def test_compact_inline_first_child_space_after(self):
+        r = self._result("<p><em>b</em> c</p>", "<p><em>y</em> z</p>")
+        self.assertIsNone(r.text)
+        self.assertEqual(r[0].tail, " z")
+
+    def test_compact_inline_first_child_no_space(self):
+        r = self._result("<p><em>b</em>c</p>", "<p><em>y</em>z</p>")
+        self.assertIsNone(r.text)
+        self.assertEqual(r[0].tail, "z")
+
+    def test_compact_inline_last_child_space_before(self):
+        r = self._result("<p>a <em>b</em></p>", "<p>x <em>y</em></p>")
+        self.assertEqual(r.text, "x ")
+        self.assertIsNone(r[0].tail)
+
+    def test_compact_inline_last_child_no_space(self):
+        r = self._result("<p>a<em>b</em></p>", "<p>x<em>y</em></p>")
+        self.assertEqual(r.text, "x")
+        self.assertIsNone(r[0].tail)
+
+    def test_compact_multiple_inlines_no_spaces(self):
+        r = self._result("<p>a<em>b</em>c<em>d</em>e</p>", "<p>x<em>y</em>z<em>w</em>v</p>")
+        self.assertEqual(r.text, "x")
+        self.assertEqual(r[0].tail, "z")
+        self.assertEqual(r[1].tail, "v")
+
+    def test_compact_multiple_inlines_with_spaces(self):
+        r = self._result(
+            "<p>a <em>b</em> c <em>d</em> e</p>",
+            "<p>x <em>y</em> z <em>w</em> v</p>",
+        )
+        self.assertEqual(r.text, "x ")
+        self.assertEqual(r[0].tail, " z ")
+        self.assertEqual(r[1].tail, " v")
+
+    # ── Indented fill response (LLM adds newlines / indentation) ─────────
+    # The indentation collapses meaningful spaces into "\n  " sequences.
+    # The original element's spacing (via self.create_element()) must be used
+    # to restore the correct leading/trailing spaces around each text node.
+
+    def test_indented_no_space_dropcap(self):
+        """Adjacent inline siblings, no space between them (drop-cap pattern)."""
+        r = self._result(
+            "<p><span>T</span><small>HIS</small></p>",
+            "<p>\n  <span>E</span>\n  <small>Z</small>\n</p>",
+        )
+        self.assertIsNone(r.text)
+        self.assertIsNone(r[0].tail)  # no space before small
+
+    def test_indented_space_between_siblings(self):
+        """Text before first inline, space between siblings."""
+        r = self._result(
+            "<p>A<small>BC</small> D<small>EF</small></p>",
+            "<p>\n  W\n  <small>XY</small>\n  Z\n  <small>UV</small>\n</p>",
+        )
+        self.assertEqual(r.text, "W")       # no leading/trailing space
+        self.assertEqual(r[0].tail, " Z")   # leading space restored, no trailing
+        self.assertIsNone(r[1].tail)
+
+    def test_indented_trailing_space_before_inline(self):
+        """Trailing space in element text before first inline child."""
+        r = self._result(
+            "<p>text a <em>word</em></p>",
+            "<p>\n  translated a\n  <em>inn</em>\n</p>",
+        )
+        self.assertEqual(r.text, "translated a ")  # trailing space from original
+        self.assertIsNone(r[0].tail)
+
+    def test_indented_space_both_sides(self):
+        r = self._result(
+            "<p>word1 <em>middle</em> word2</p>",
+            "<p>\n  w1\n  <em>mid</em>\n  w2\n</p>",
+        )
+        self.assertEqual(r.text, "w1 ")
+        self.assertEqual(r[0].tail, " w2")
+
+    def test_indented_no_space_around_inline(self):
+        r = self._result(
+            "<p>prefix<em>middle</em>suffix</p>",
+            "<p>\n  pre\n  <em>mid</em>\n  suf\n</p>",
+        )
+        self.assertEqual(r.text, "pre")
+        self.assertEqual(r[0].tail, "suf")
+
+    def test_indented_inline_first_child_space_after(self):
+        r = self._result(
+            "<p><em>b</em> c</p>",
+            "<p>\n  <em>y</em>\n  z\n</p>",
+        )
+        self.assertIsNone(r.text)
+        self.assertEqual(r[0].tail, " z")
+
+    def test_indented_inline_first_child_no_space(self):
+        r = self._result(
+            "<p><em>b</em>c</p>",
+            "<p>\n  <em>y</em>\n  z\n</p>",
+        )
+        self.assertIsNone(r.text)
+        self.assertEqual(r[0].tail, "z")
+
+    def test_indented_inline_last_child_space_before(self):
+        r = self._result(
+            "<p>a <em>b</em></p>",
+            "<p>\n  x\n  <em>y</em>\n</p>",
+        )
+        self.assertEqual(r.text, "x ")
+        self.assertIsNone(r[0].tail)
+
+    def test_indented_inline_last_child_no_space(self):
+        r = self._result(
+            "<p>a<em>b</em></p>",
+            "<p>\n  x\n  <em>y</em>\n</p>",
+        )
+        self.assertEqual(r.text, "x")
+        self.assertIsNone(r[0].tail)
+
+    def test_indented_multiple_inlines_no_spaces(self):
+        r = self._result(
+            "<p>a<em>b</em>c<em>d</em>e</p>",
+            "<p>\n  x\n  <em>y</em>\n  z\n  <em>w</em>\n  v\n</p>",
+        )
+        self.assertEqual(r.text, "x")
+        self.assertEqual(r[0].tail, "z")
+        self.assertEqual(r[1].tail, "v")
+
+    def test_indented_multiple_inlines_with_spaces(self):
+        r = self._result(
+            "<p>a <em>b</em> c <em>d</em> e</p>",
+            "<p>\n  x\n  <em>y</em>\n  z\n  <em>w</em>\n  v\n</p>",
+        )
+        self.assertEqual(r.text, "x ")
+        self.assertEqual(r[0].tail, " z ")
+        self.assertEqual(r[1].tail, " v")
+
+    def test_indented_new_tail_content_gets_leading_space(self):
+        # Original has no tail on the inline element; fill LLM adds a word after it.
+        # A leading space must be inserted so the words are not merged.
+        r = self._result(
+            "<p>prefix <i>inner</i></p>",
+            "<p>\n  pre\n  <i>inn</i>\n  suf\n</p>",
+        )
+        self.assertEqual(r[0].tail, " suf")
+
+    def test_compact_new_tail_content_preserved_as_is(self):
+        # Compact fill response: tail content is taken as-is (LLM had the info).
+        r = self._result(
+            "<p>prefix <i>inner</i></p>",
+            "<p>pre <i>inn</i> suf</p>",
+        )
+        self.assertEqual(r[0].tail, " suf")
+
+    def test_indented_tail_word_replaces_punctuation_gets_leading_space(self):
+        # Original tail is "." (period); translation puts a word there instead.
+        # A leading space must be inserted because a word needs separation.
+        r = self._result(
+            "<p>a <i>b</i>.</p>",
+            "<p>\n  x\n  <i>y</i>\n  z.\n</p>",
+        )
+        self.assertEqual(r[0].tail, " z.")
+
+    def test_indented_tail_word_to_word_no_leading_space(self):
+        # Original tail starts with a word (no space); translation is also a word.
+        # Original's no-space decision is preserved.
+        r = self._result(
+            "<p>a <em>b</em>rest</p>",
+            "<p>\n  x\n  <em>y</em>\n  word\n</p>",
+        )
+        self.assertEqual(r[0].tail, "word")
+
+    def test_indented_tail_punctuation_to_punctuation_no_leading_space(self):
+        # Original tail is "." and translation is also "."; no leading space.
+        r = self._result(
+            "<p>a <em>b</em>.</p>",
+            "<p>\n  x\n  <em>y</em>\n  .\n</p>",
+        )
+        self.assertEqual(r[0].tail, ".")
+
+    def test_indented_tail_space_word_to_punctuation_no_leading_space(self):
+        # Case H: original tail is " word" (starts with space), translation puts
+        # punctuation there. The original's leading space must NOT be applied to
+        # punctuation — result should be "," not " ,".
+        r = self._result(
+            "<p>a <em>b</em> rest of sentence</p>",
+            "<p>\n  x\n  <em>y</em>\n  ,\n</p>",
+        )
+        self.assertEqual(r[0].tail, ",")
+
+
 if __name__ == "__main__":
     unittest.main()
