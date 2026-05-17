@@ -483,6 +483,47 @@ print(f"Combined total: {translation_llm.total_tokens + fill_llm.total_tokens}")
 - [PDF Craft](https://github.com/oomol-lab/pdf-craft): If your source book is a scanned or image-based PDF, PDF Craft can convert it to EPUB first, so it is ready for translation. See this [demo video](https://www.bilibili.com/video/BV1tMQZY5EYY/) for the full scanned PDF to bilingual EPUB workflow.
 - [SpineDigest](https://github.com/oomol-lab/spinedigest): If you want more than translation and need a structural digest of the book, SpineDigest can turn an EPUB into summaries, chapter topology, and a knowledge graph.
 
+## Development Setup
+
+This project requires Python 3.11–3.13. Python 3.14+ is not yet supported due to a dependency constraint.
+
+Run the setup script to create a virtual environment with all dependencies:
+
+**Windows:**
+```bash
+setup_venv.bat
+```
+
+**Linux/macOS:**
+```bash
+chmod +x setup_venv.sh && ./setup_venv.sh
+```
+
+This will:
+1. Install Python 3.13 if not already present (Windows only — on Linux/macOS install it manually if missing)
+2. Create a `.venv` virtual environment
+3. Install all dependencies via `pip install -e .`
+
+To activate the environment in a new terminal:
+
+**Windows:**
+```bash
+.venv\Scripts\activate
+```
+
+**Linux/macOS:**
+```bash
+source .venv/bin/activate
+```
+
+To translate an EPUB file to Hungarian (or any supported language):
+
+```bash
+python scripts/translate_epub.py "your-book.epub" -l Hungarian
+```
+
+The translated file will be saved to `temp/translated.epub`.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
