@@ -15,7 +15,14 @@ def _normalize_fill_content(text: str, original: str | None, *, tail: bool = Fal
     trailing spaces.
 
     For compact (non-indented) fill responses there are no newlines, so the text
-    is returned unchanged; the LLM had the information and we trust its output.
+    is mostly returned unchanged.  Two structural separators are still restored:
+
+    * **Tail leading space** (Tier-2): if the fill tail starts with a word
+      character but the original tail did not (started with a space or was
+      empty/punctuation), restore the leading space.
+    * **Text trailing space**: if the fill text (non-tail) ends with a word
+      character but the original text ended with a space (separator before a
+      child element), restore the trailing space.
 
     When ``tail=True`` the leading-space decision uses a word-boundary heuristic
     with three tiers:
@@ -35,7 +42,21 @@ def _normalize_fill_content(text: str, original: str | None, *, tail: bool = Fal
        direct attachments like "<em>Freud</em>ian".
     """
     if "\n" not in text:
-        return text
+        # Compact mode: mostly trust the LLM, but restore structural separators
+        # that the LLM silently dropped when translating.
+        orig = original or ""
+        result = text
+        if tail:
+            # Leading edge — Tier-2: word content where original had non-word
+            # (space or punctuation) means the separator was dropped.
+            if result and result[0].isalnum() and (not orig or not orig[0].isalnum()):
+                result = " " + result
+        else:
+            # Trailing edge: space before a child element is structural; if the
+            # original had it and the fill lost it, restore it.
+            if result and result[-1].isalnum() and orig.endswith(" "):
+                result = result + " "
+        return result
     content = normalize_whitespace(text).strip()
     if not content:
         return ""
