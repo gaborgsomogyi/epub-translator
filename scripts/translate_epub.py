@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import time
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
@@ -32,6 +33,7 @@ def main() -> None:
         cache_path=Path(__file__).parent / ".." / "cache",
         log_dir_path=temp_path / "logs",
     )
+    start_time = time.time()
     with tqdm(total=100, desc="Translating", unit="%", bar_format="{l_bar}{bar}| {n:.1f}/{total:.0f}%") as pbar:
         last_progress = 0.0
 
@@ -90,6 +92,10 @@ def main() -> None:
     print(f"  Input tokens:       {input_combined:,}")
     print(f"  Input cache tokens: {input_cache_combined:,}")
     print(f"  Output tokens:      {output_combined:,}")
+    elapsed = time.time() - start_time
+    hours, remainder = divmod(int(elapsed), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    print(f"\nTotal time: {hours:02d}:{minutes:02d}:{seconds:02d}")
     print("=" * 50 + "\n")
 
 
