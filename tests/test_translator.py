@@ -1,6 +1,17 @@
 import unittest
+from xml.etree.ElementTree import fromstring
 
-from epub_translator.xml_translator.translator import _count_blocks, _parse_numbered_blocks
+from epub_translator.segment import search_inline_segments, search_text_segments
+from epub_translator.xml_translator.translator import (
+    _build_fallback_mapping,
+    _count_blocks,
+    _parse_numbered_blocks,
+)
+
+
+def _first_inline_segment(xml: str):
+    root = fromstring(xml)
+    return list(search_inline_segments(search_text_segments(root)))[0]
 
 
 class CountBlocksTest(unittest.TestCase):
@@ -68,6 +79,36 @@ class ParseNumberedBlocksTest(unittest.TestCase):
             _parse_numbered_blocks(response, 2, fallback=["a", "b"]),
             ["first", "second"],
         )
+
+
+class BuildFallbackMappingTest(unittest.TestCase):
+    def test_plain_block_gets_translated_text_on_its_own_segment(self) -> None:
+        seg = _first_inline_segment("<p>Hello world</p>")
+        mapping = _build_fallback_mapping(seg, "Szia világ")
+        self.assertIsNotNone(mapping)
+        parent, text_segments = mapping
+        self.assertIs(parent, seg.parent)
+        self.assertEqual(len(text_segments), 1)
+        self.assertEqual(text_segments[0].text, "Szia világ")
+
+    def test_fallback_segment_is_a_clone_not_the_source(self) -> None:
+        seg = _first_inline_segment("<p>Hello world</p>")
+        source_first = list(seg)[0]
+        _, text_segments = _build_fallback_mapping(seg, "Szia")
+        # The source segment must be left untouched (we clone before reassigning text).
+        self.assertEqual(source_first.text, "Hello world")
+        self.assertIsNot(text_segments[0], source_first)
+
+    def test_empty_text_returns_none(self) -> None:
+        seg = _first_inline_segment("<p>Hello world</p>")
+        self.assertIsNone(_build_fallback_mapping(seg, ""))
+
+    def test_block_with_inline_markup_still_produces_a_mapping(self) -> None:
+        seg = _first_inline_segment("<p>a <em>b</em> c</p>")
+        mapping = _build_fallback_mapping(seg, "lefordított")
+        self.assertIsNotNone(mapping)
+        _, text_segments = mapping
+        self.assertEqual(text_segments[0].text, "lefordított")
 
 
 if __name__ == "__main__":

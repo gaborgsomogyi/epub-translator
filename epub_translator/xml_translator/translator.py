@@ -141,14 +141,24 @@ class XMLTranslator:
             callbacks=callbacks,
         )
         mappings: list[InlineSegmentMapping | None] = []
-        for mapping in hill_climbing.gen_mappings():
+        for inline_segment, source_block, mapping in zip(inline_segments, source_blocks, hill_climbing.gen_mappings()):
             if mapping:
                 _, text_segments = mapping
                 if not text_segments:
                     mapping = None
+            if mapping is None:
+                # The fill step never managed to place this block (it exhausted all
+                # retries), so it would otherwise be emitted bare — the original text
+                # with no translation beside it. Guarantee a complete block: translate
+                # it on its own and carry the result on the block's own source segment.
+                mapping = self._fallback_block_mapping(inline_segment, source_block)
             mappings.append(mapping)
 
         return mappings
+
+    def _fallback_block_mapping(self, inline_segment: InlineSegment, source_block: str) -> InlineSegmentMapping | None:
+        translated = self._translate_text(source_block).strip() or source_block
+        return _build_fallback_mapping(inline_segment, translated)
 
     def _render_source_blocks(self, inline_segments: list[InlineSegment]) -> list[str]:
         return ["".join(text_segment.text for text_segment in inline_segment) for inline_segment in inline_segments]
@@ -273,6 +283,18 @@ def _count_blocks(text: str) -> int:
     # line). Consecutive newlines count as a single separator, so this reports the
     # number of non-empty blocks regardless of how the model spaced them.
     return len([part for part in re.split(r"\n+", text.strip()) if part.strip()])
+
+
+def _build_fallback_mapping(inline_segment: InlineSegment, text: str) -> InlineSegmentMapping | None:
+    # Reuse the block's own first source text segment as the anchor so the fallback
+    # has a valid parent stack, then carry the translated text on it. This keeps the
+    # block structurally complete (never emitted bare) without relying on the fill LLM.
+    source_segments = list(inline_segment)
+    if not source_segments or not text:
+        return None
+    segment = source_segments[0].clone()
+    segment.text = text
+    return inline_segment.parent, [segment]
 
 
 def _parse_numbered_blocks(response: str, count: int, fallback: list[str]) -> list[str]:
