@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -121,8 +122,17 @@ class XMLTranslator:
                 inline_segments=inline_segments,
             ),
         )
-        source_text = "".join(self._render_source_text_parts(inline_segments))
+        source_blocks = self._render_source_blocks(inline_segments)
+        source_text = _BLOCK_SEPARATOR.join(source_blocks)
         translated_text = self._translate_text(source_text)
+
+        if len(source_blocks) > 1 and _count_blocks(translated_text) != len(source_blocks):
+            # The translator collapsed (or split) the block structure — typically a
+            # sentence that straddles a page break, which the model fuses into one
+            # paragraph. Re-translate with explicit [[N]] markers so the blocks stay
+            # in 1:1 correspondence and the fill step can align each one; otherwise a
+            # block can be left untranslated when its text is absorbed into a sibling.
+            translated_text = self._translate_blocks(source_blocks)
 
         self._request_and_submit(
             hill_climbing=hill_climbing,
@@ -140,12 +150,8 @@ class XMLTranslator:
 
         return mappings
 
-    def _render_source_text_parts(self, inline_segments: list[InlineSegment]):
-        for i, inline_segment in enumerate(inline_segments):
-            if i > 0:
-                yield "\n\n"
-            for text_segment in inline_segment:
-                yield text_segment.text
+    def _render_source_blocks(self, inline_segments: list[InlineSegment]) -> list[str]:
+        return ["".join(text_segment.text for text_segment in inline_segment) for inline_segment in inline_segments]
 
     def _translate_text(self, text: str) -> str:
         with self._translation_llm.context(cache_seed_content=self._cache_seed_content) as ctx:
@@ -161,6 +167,23 @@ class XMLTranslator:
                     Message(role=MessageRole.USER, message=text),
                 ]
             )
+
+    def _translate_blocks(self, blocks: list[str]) -> str:
+        numbered = "\n".join(f"[[{i + 1}]] {block}" for i, block in enumerate(blocks))
+        with self._translation_llm.context(cache_seed_content=self._cache_seed_content) as ctx:
+            response = ctx.request(
+                input=[
+                    Message(
+                        role=MessageRole.SYSTEM,
+                        message=self._translation_llm.template("translate_blocks").render(
+                            target_language=self._target_language,
+                            user_prompt=self._user_prompt,
+                        ),
+                    ),
+                    Message(role=MessageRole.USER, message=numbered),
+                ]
+            )
+        return _BLOCK_SEPARATOR.join(_parse_numbered_blocks(response, len(blocks), fallback=blocks))
 
     def _request_and_submit(
         self,
@@ -239,3 +262,28 @@ class XMLTranslator:
                 "Please return only one XML block without any examples or explanations."
             )
         return first_xml_element
+
+
+_BLOCK_SEPARATOR = "\n\n"
+_BLOCK_MARKER = re.compile(r"\[\[\s*(\d+)\s*\]\]")
+
+
+def _count_blocks(text: str) -> int:
+    # A translated block is rendered on its own line (blocks are joined with a blank
+    # line). Consecutive newlines count as a single separator, so this reports the
+    # number of non-empty blocks regardless of how the model spaced them.
+    return len([part for part in re.split(r"\n+", text.strip()) if part.strip()])
+
+
+def _parse_numbered_blocks(response: str, count: int, fallback: list[str]) -> list[str]:
+    # Split the response on [[N]] markers and collect the text following each one.
+    # Missing or empty blocks fall back to the source text so the 1:1 block count is
+    # always preserved for the fill step, even if the model drops a marker.
+    matches = list(_BLOCK_MARKER.finditer(response))
+    parsed: dict[int, str] = {}
+    for i, match in enumerate(matches):
+        number = int(match.group(1))
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(response)
+        parsed[number] = response[start:end].strip()
+    return [parsed.get(i + 1) or fallback[i] for i in range(count)]

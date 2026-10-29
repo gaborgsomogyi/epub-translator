@@ -1,6 +1,8 @@
 /temp
 /cache
 /format.json
+/format.*.json
+!/format.template.json
 /.claude
 
 # Byte-compiled / optimized / DLL files
