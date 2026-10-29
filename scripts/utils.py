@@ -9,16 +9,11 @@ def load_llm(**args):
     config = read_format_json()
     translation_config = config.pop("translation", {})
     fill_config = config.pop("fill", {})
-    translate_llm = LLM(
-        **config,
-        **translation_config,
-        **args,
-    )
-    fill_llm = LLM(
-        **config,
-        **fill_config,
-        **args,
-    )
+    # Merge so a per-step block (e.g. a cheaper "model" for fill) overrides the base
+    # config; explicit args win over both. Splatting the dicts separately would raise
+    # a duplicate-keyword TypeError when a step overrides a base key such as "model".
+    translate_llm = LLM(**{**config, **translation_config, **args})
+    fill_llm = LLM(**{**config, **fill_config, **args})
     return translate_llm, fill_llm
 
 
